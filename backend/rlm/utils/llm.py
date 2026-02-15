@@ -29,10 +29,36 @@ class LocalClient:
     Tracks approximate token counts and cost.
     """
 
+    # Models known to be EMBEDDING-ONLY (cannot do chat/completions)
+    EMBEDDING_MODELS: set = {
+        "nomic-embed-text",
+        "nomic-embed-text:latest",
+        "all-minilm",
+        "all-minilm:latest",
+        "mxbai-embed-large",
+        "mxbai-embed-large:latest",
+        "snowflake-arctic-embed",
+        "snowflake-arctic-embed:latest",
+        "bge-large",
+        "bge-large:latest",
+        "bge-m3",
+        "bge-m3:latest",
+    }
+
+    # Preferred chat models (in order of preference)
+    PREFERRED_CHAT_MODELS: List[str] = [
+        "qwen2.5:3b",
+        "qwen:4b", 
+        "phi4-mini:latest",
+        "gemma3:latest",
+        "llama3.2",
+        "llama3.1",
+        "mistral",
+        "mixtral",
+    ]
+
     # Pricing per 1 M tokens (input_price, output_price) in USD
-    # Local models are essentially free, but we track for visibility
     PRICING: Dict[str, Tuple[float, float]] = {
-        # Ollama local models - treated as nearly free
         "qwen2.5:3b":       (0.01, 0.01),
         "qwen:4b":          (0.01, 0.01),
         "phi4-mini:latest": (0.01, 0.01),
@@ -42,7 +68,7 @@ class LocalClient:
 
     def __init__(self, api_key: Optional[str], model: str):
         self.api_key  = api_key or os.getenv("RLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-        # Ollama default port is 11434, not 8080
+        # Ollama default port is 11434
         self.base_url = os.getenv("RLM_API_URL", "http://localhost:11434/v1").rstrip("/")
 
         # Discover available models from the server
@@ -67,27 +93,57 @@ class LocalClient:
         elif isinstance(data, list):
             available = [str(m) for m in data]
 
+        # Filter out embedding-only models
+        chat_models = [m for m in available if m not in self.EMBEDDING_MODELS]
+        
         print(f"[llm] Available models: {available}")
+        if len(chat_models) != len(available):
+            print(f"[llm] Filtered embedding models: {set(available) - set(chat_models)}")
 
         # Resolve model name
         if not model or model in ("", "auto"):
-            if available:
-                self.model = available[0]
+            # Try preferred models first
+            selected = None
+            for preferred in self.PREFERRED_CHAT_MODELS:
+                if preferred in chat_models:
+                    selected = preferred
+                    break
+            
+            # Fall back to first available chat model
+            if not selected and chat_models:
+                selected = chat_models[0]
+                
+            # Last resort: use whatever is available (will probably fail if only embeddings)
+            if not selected and available:
+                selected = available[0]
+                
+            if selected:
+                self.model = selected
                 print(f"[llm] Auto-selected model: {self.model}")
             else:
-                # Fallback to qwen2.5:3b if nothing available
-                self.model = "qwen2.5:3b"
-                print(f"[llm] No models reported, using fallback: {self.model}")
-        elif model and model not in available and available:
+                raise RuntimeError("No models available from Ollama server")
+        elif model and model not in available:
             print(f"[llm] Warning: model '{model}' not found in {available}.")
-            # Try to find a similar model or use first available
-            fallback = self._find_fallback_model(model, available)
+            # Try to find a fallback
+            fallback = self._find_fallback_model(model, chat_models)
             if fallback:
                 print(f"[llm] Using fallback: {fallback}")
                 self.model = fallback
+            elif chat_models:
+                print(f"[llm] Using first available chat model: {chat_models[0]}")
+                self.model = chat_models[0]
             else:
                 print(f"[llm] Using requested model anyway: {model}")
                 self.model = model
+        elif model in self.EMBEDDING_MODELS:
+            # User explicitly requested an embedding model - warn and find alternative
+            print(f"[llm] ERROR: '{model}' is an embedding model, cannot do chat!")
+            fallback = self._find_fallback_model("qwen", chat_models) or (chat_models[0] if chat_models else None)
+            if fallback:
+                print(f"[llm] Using alternative: {fallback}")
+                self.model = fallback
+            else:
+                raise RuntimeError(f"Model '{model}' is embedding-only and no alternatives found")
         else:
             self.model = model
 
@@ -107,6 +163,10 @@ class LocalClient:
         if "gemma" in requested_lower:
             for m in available:
                 if "gemma" in m.lower():
+                    return m
+        if "llama" in requested_lower:
+            for m in available:
+                if "llama" in m.lower():
                     return m
         
         # Return first available as last resort
