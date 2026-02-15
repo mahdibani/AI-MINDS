@@ -530,6 +530,293 @@ def run_rlm_tests(verbose):
 
 
 # ============================================================================
+# Dark Theme CSS
+# ============================================================================
+
+DARK_CSS = """
+/* ── Root palette ── */
+:root {
+    --bg-primary:    #0d0f13;
+    --bg-secondary:  #141720;
+    --bg-surface:    #1c1f2a;
+    --bg-elevated:   #232738;
+    --border:        #2e3347;
+    --accent:        #5b7fff;
+    --accent-glow:   rgba(91, 127, 255, 0.18);
+    --accent-dim:    #3d57cc;
+    --success:       #34d399;
+    --warning:       #fbbf24;
+    --danger:        #f87171;
+    --text-primary:  #e8eaf0;
+    --text-secondary:#9aa0b8;
+    --text-muted:    #5c6280;
+    --font-mono:     'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ── Base overrides ── */
+body, .gradio-container {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    font-family: 'DM Sans', 'Outfit', system-ui, sans-serif !important;
+}
+
+/* ── Header ── */
+.gradio-container > .prose h1 {
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 40%, #5b7fff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
+}
+
+/* ── Panels & blocks ── */
+.block, .form, .panel, .wrap, .gap,
+.svelte-1gfkfd6, .svelte-10ogue4 {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border) !important;
+}
+
+/* ── Tabs ── */
+.tab-nav {
+    background: var(--bg-surface) !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: 10px 10px 0 0 !important;
+    overflow: hidden;
+}
+
+.tab-nav button {
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 10px 18px !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.2px;
+    transition: color 0.2s, background 0.2s !important;
+}
+
+.tab-nav button:hover {
+    color: var(--text-primary) !important;
+    background: var(--accent-glow) !important;
+}
+
+.tab-nav button.selected {
+    color: var(--accent) !important;
+    background: var(--bg-elevated) !important;
+    border-bottom: 2px solid var(--accent) !important;
+    font-weight: 600 !important;
+}
+
+/* ── Inputs ── */
+input[type="text"], input[type="number"],
+textarea, .input-wrap textarea, .scroll-hide {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 8px !important;
+    font-family: inherit !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+input[type="text"]:focus, textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-glow) !important;
+    outline: none !important;
+}
+
+/* ── Labels ── */
+label span, .label-wrap span {
+    color: var(--text-secondary) !important;
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+/* ── Buttons ── */
+button.primary, .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%) !important;
+    border: none !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 12px var(--accent-glow) !important;
+    transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s !important;
+}
+
+button.primary:hover {
+    opacity: 0.9 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 20px var(--accent-glow) !important;
+}
+
+button.primary:active {
+    transform: translateY(0) !important;
+}
+
+button.stop, .btn-stop {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--danger) !important;
+    color: var(--danger) !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: background 0.2s, box-shadow 0.2s !important;
+}
+
+button.stop:hover {
+    background: rgba(248, 113, 113, 0.1) !important;
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15) !important;
+}
+
+button:not(.primary):not(.stop):not(.selected) {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 8px !important;
+    transition: border-color 0.2s, background 0.2s !important;
+}
+
+button:not(.primary):not(.stop):not(.selected):hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-glow) !important;
+}
+
+/* ── Chatbot ── */
+.chatbot {
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+}
+
+.chatbot .message.user {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 10px 10px 2px 10px !important;
+}
+
+.chatbot .message.bot {
+    background: linear-gradient(135deg, #1a1e30 0%, #1c2035 100%) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 10px 10px 10px 2px !important;
+}
+
+/* ── Markdown output ── */
+.prose, .md {
+    color: var(--text-primary) !important;
+}
+
+.prose h1, .prose h2, .prose h3 {
+    color: var(--text-primary) !important;
+}
+
+.prose code, code {
+    background: var(--bg-elevated) !important;
+    color: #a5b4fc !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    font-family: var(--font-mono) !important;
+    font-size: 0.82em !important;
+    padding: 1px 5px !important;
+}
+
+.prose pre, pre {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    padding: 14px !important;
+}
+
+.prose table {
+    border-color: var(--border) !important;
+}
+
+.prose th {
+    background: var(--bg-elevated) !important;
+    color: var(--text-secondary) !important;
+}
+
+.prose td {
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.prose tr:nth-child(even) {
+    background: var(--bg-surface) !important;
+}
+
+/* ── Code editor ── */
+.codemirror-wrapper, .cm-editor {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    font-family: var(--font-mono) !important;
+}
+
+.cm-gutters {
+    background: var(--bg-surface) !important;
+    border-right: 1px solid var(--border) !important;
+    color: var(--text-muted) !important;
+}
+
+.cm-content {
+    color: var(--text-primary) !important;
+}
+
+/* ── Sliders ── */
+input[type="range"] {
+    accent-color: var(--accent) !important;
+}
+
+/* ── Checkboxes ── */
+input[type="checkbox"] {
+    accent-color: var(--accent) !important;
+}
+
+/* ── Radio buttons ── */
+.gr-radio input[type="radio"]:checked + span,
+.radio-group input[type="radio"]:checked + label {
+    color: var(--accent) !important;
+}
+
+/* ── File upload ── */
+.upload-container, .file-preview {
+    background: var(--bg-elevated) !important;
+    border: 1.5px dashed var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text-secondary) !important;
+    transition: border-color 0.2s !important;
+}
+
+.upload-container:hover {
+    border-color: var(--accent) !important;
+}
+
+/* ── Scrollbars ── */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) var(--bg-primary);
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: var(--bg-primary); }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Footer ── */
+footer .prose {
+    color: var(--text-muted) !important;
+    font-size: 0.8rem !important;
+}
+
+/* ── Gradio dark mode toggle (force dark) ── */
+.dark { color-scheme: dark; }
+"""
+
+
+# ============================================================================
 # Create Gradio Interface
 # ============================================================================
 
@@ -538,10 +825,59 @@ def create_app():
     
     with gr.Blocks(
         title="AI-MINDS RLM Tools",
+        theme=gr.themes.Base(
+            primary_hue=gr.themes.colors.indigo,
+            secondary_hue=gr.themes.colors.slate,
+            neutral_hue=gr.themes.colors.slate,
+            font=[gr.themes.GoogleFont("DM Sans"), "system-ui", "sans-serif"],
+            font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "monospace"],
+        ).set(
+            # Core backgrounds
+            body_background_fill="#0d0f13",
+            body_background_fill_dark="#0d0f13",
+            block_background_fill="#141720",
+            block_background_fill_dark="#141720",
+            block_border_color="#2e3347",
+            block_border_color_dark="#2e3347",
+            # Input fields
+            input_background_fill="#232738",
+            input_background_fill_dark="#232738",
+            input_border_color="#2e3347",
+            input_border_color_dark="#2e3347",
+            input_border_color_focus="#5b7fff",
+            input_border_color_focus_dark="#5b7fff",
+            # Buttons
+            button_primary_background_fill="#5b7fff",
+            button_primary_background_fill_dark="#5b7fff",
+            button_primary_background_fill_hover="#4a6aee",
+            button_primary_background_fill_hover_dark="#4a6aee",
+            button_primary_text_color="#ffffff",
+            button_primary_text_color_dark="#ffffff",
+            button_secondary_background_fill="#232738",
+            button_secondary_background_fill_dark="#232738",
+            button_secondary_border_color="#2e3347",
+            button_secondary_border_color_dark="#2e3347",
+            button_secondary_text_color="#e8eaf0",
+            button_secondary_text_color_dark="#e8eaf0",
+            # Text
+            body_text_color="#e8eaf0",
+            body_text_color_dark="#e8eaf0",
+            body_text_color_subdued="#9aa0b8",
+            body_text_color_subdued_dark="#9aa0b8",
+            # Borders & shadows
+            border_color_primary="#2e3347",
+            border_color_primary_dark="#2e3347",
+            shadow_drop="0 4px 24px rgba(0,0,0,0.4)",
+            shadow_drop_lg="0 8px 40px rgba(0,0,0,0.5)",
+            # Block labels
+            block_label_text_color="#9aa0b8",
+            block_label_text_color_dark="#9aa0b8",
+        ),
+        css=DARK_CSS,
     ) as app:
         
         gr.Markdown("""
-        # 🤖 AI-MINDS - RLM Tools Suite
+        # 🤖 AI-MINDS — RLM Tools Suite
         ### Unified interface for all Recursive Language Model capabilities
         
         **Available Tools**: Budget Advisor • File Analysis • Knowledge Graph • Memory • REPL • Testing
