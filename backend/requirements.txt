@@ -1,0 +1,6 @@
+langchain_ollama
+deepagents
+langchain-daytona
+daytona-sdk
+python-dotenv
+langchain-openai
