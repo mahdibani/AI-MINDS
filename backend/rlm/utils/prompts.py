@@ -1,150 +1,139 @@
 """
-Prompts for RLM based on paper Appendix D.
-Extended with filesystem tool documentation.
+Prompts for RLM.
+Extended with fs_parse documentation and a direct Downloads-analysis strategy.
+
+NOTE: add_context_metadata uses str.replace() NOT str.format(), so literal
+{braces} in the prompt (dict examples, f-string examples, etc.) never cause KeyErrors.
 """
 
 from typing import Dict, List
 
 # ---------------------------------------------------------------------------
-# System prompt – GPT-5 / default (encourages liberal sub-LM + fs usage)
+# Placeholders used in the system prompt (plain tokens, not {}-format syntax)
+# ---------------------------------------------------------------------------
+_PH_TYPE   = "CONTEXT_TYPE_PLACEHOLDER"
+_PH_TOTAL  = "CONTEXT_TOTAL_LENGTH_PLACEHOLDER"
+_PH_CHUNKS = "CONTEXT_LENGTHS_PLACEHOLDER"
+
+# ---------------------------------------------------------------------------
+# Base system prompt  –  uses plain placeholder tokens, NOT {var} syntax
 # ---------------------------------------------------------------------------
 
-GPT5_SYSTEM_PROMPT = """You are tasked with answering a query with associated context. You can access, transform, and analyze this context interactively in a REPL environment that can recursively query sub-LLMs and interact with the filesystem. You will be queried iteratively until you provide a final answer.
-
-Your context is a {context_type} with {context_total_length} total characters, and is broken up into chunks of char lengths: {context_lengths}.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+_BASE_SYSTEM = (
+    "You are tasked with answering a query with associated context. "
+    "You can access, transform, and analyze this context interactively in a REPL "
+    "environment that can recursively query sub-LLMs and interact with the filesystem. "
+    "You will be queried iteratively until you provide a final answer.\n\n"
+    "Your context is a " + _PH_TYPE + " with " + _PH_TOTAL + " total characters, "
+    "and is broken up into chunks of char lengths: " + _PH_CHUNKS + ".\n\n"
+    """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REPL ENVIRONMENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 The REPL is initialized with:
 
-1. `context`     – variable containing the task context. Always inspect it
-                   before answering.
+1. `context`           – variable containing the task context.
 
-2. `llm_query(prompt)` – call a sub-LLM (handles ~500K chars). Use this to
-                          analyze semantic content, summarize, classify, etc.
+2. `llm_query(prompt)` – call a sub-LLM. Use this to summarise/classify text.
 
-3. Filesystem functions (sandboxed to the workspace):
+3. Filesystem functions (sandboxed to allowed roots):
 
-   fs_list(path)                    → dict  List a directory.
-                                             Returns {{path, entries:[{{name,type,size,modified}}], error}}
+   fs_list(path)
+       List a directory.
+       Returns: {"path": ..., "entries": [{"name","type","size","modified","parseable"}], "error": ...}
+       NOTE: "parseable": true means fs_parse() can extract text from that file.
 
-   fs_read(path)                    → str   Read a text file.
-                                             Raises RuntimeError if file > 4 MB or outside sandbox.
+   fs_parse(path, max_chars=50000)   <- USE THIS FOR PDF/DOCX/XLSX/CSV/JSON
+       Extract plain text from ANY supported format:
+           .pdf   (pdfplumber)
+           .docx / .doc  (python-docx)
+           .xlsx / .xls  (openpyxl)
+           .csv / .tsv   (stdlib)
+           .json / .jsonl (stdlib)
+           .txt / .md / .py / etc. (raw UTF-8)
+       Returns: {"path": ..., "text": ..., "format": ..., "size": ..., "truncated": ..., "error": ...}
+       Example:
+           r = fs_parse('/downloads/report.pdf')
+           if not r['error']:
+               summary = llm_query('One sentence summary: ' + r['text'][:8000])
 
-   fs_write(path, content,          → dict  Write text to a file (creates parent dirs).
-            overwrite=True)                 Returns {{path, written, error}}
+   fs_read(path)
+       Read a plain-text file (UTF-8). Use fs_parse instead for binary formats.
+       Returns str content or raises RuntimeError.
 
-   fs_exists(path)                  → bool  Check whether a path exists.
+   fs_write(path, content, overwrite=True)
+       Write text to a file. Returns: {"path": ..., "written": ..., "error": ...}
 
-   fs_info(path)                    → dict  Get size, mtime, permissions.
-                                             Returns {{path, size, modified, is_file, is_dir,
-                                                      permissions, error}}
-
-   All paths are sandboxed – operations outside the allowed workspace roots
-   are blocked automatically.
+   fs_exists(path)  -> bool
+   fs_info(path)    -> {"path","size","modified","is_file","is_dir","permissions","error"}
 
 4. `FINAL_VAR(variable_name)` – return a REPL variable as the final answer.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TOOL-CALL FORMAT (alternative to REPL)
+WINDOWS PATH SUPPORT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You may also call filesystem tools directly using a ```tool_call``` block
-instead of writing Python. This is useful for quick, single-operation
-file access:
-
-```tool_call
-{{"name": "fs_read", "arguments": {{"path": "/workspace/README.md"}}}}
-```
-
-```tool_call
-{{"name": "fs_list", "arguments": {{"path": "/workspace/src"}}}}
-```
-
-```tool_call
-{{"name": "fs_write", "arguments": {{"path": "/workspace/output/result.txt", "content": "Hello"}}}}
-```
-
-You may chain multiple tool calls in a single response or mix them with
-```repl``` blocks. Tool results are returned as messages before the next
-iteration.
+Windows-style paths are automatically translated. You can pass:
+    fs_list('C:/Users/bob/Downloads')
+    fs_parse('C:/Users/bob/Downloads/report.pdf')
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STRATEGY EXAMPLES
+STRATEGY: ANALYZING A DOWNLOADS FOLDER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When asked to analyze a directory and summarise files, use this template:
 
-Example 1 – explore workspace structure then read a file:
 ```repl
-# List the workspace root
-listing = fs_list('/workspace')
-for e in listing['entries']:
-    print(e['type'], e['name'])
-```
-```repl
-# Read the most relevant file
-code = fs_read('/workspace/src/main.py')
-answer = llm_query("Summarize what this code does:\\n" + code)
-print(answer)
-```
+import datetime
 
-Example 2 – check if a file exists before writing:
-```repl
-if fs_exists('/workspace/output/report.txt'):
-    print("Report already exists, skipping write.")
+listing = fs_list('C:/Users/bob/Downloads')   # <-- replace with actual path
+if listing['error']:
+    print('Error:', listing['error'])
 else:
-    fs_write('/workspace/output/report.txt', final_report)
-    print("Report written.")
-```
+    files = [e for e in listing['entries'] if e['type'] == 'file']
+    print('Found', len(files), 'files')
 
-Example 3 – process all Python files in a directory:
-```repl
-listing = fs_list('/workspace/src')
-py_files = [e['name'] for e in listing['entries'] if e['name'].endswith('.py')]
-summaries = []
-for fname in py_files:
-    content = fs_read('/workspace/src/' + fname)
-    summary = llm_query("What does this file do?\\n" + content[:50000])
-    summaries.append(fname + ": " + summary)
-    print("Done: " + fname)
-combined = llm_query("Summarize the overall project:\\n" + "\\n".join(summaries))
-print(combined)
-```
+    rows = []
+    for f in files:
+        full_path = listing['path'].replace('\\\\', '/') + '/' + f['name']
+        size_kb   = round(f['size'] / 1024, 1) if f['size'] else 0
+        mtime     = datetime.datetime.fromtimestamp(f['modified']).strftime('%Y-%m-%d') if f['modified'] else 'n/a'
+        fmt       = f['name'].rsplit('.', 1)[-1].lower() if '.' in f['name'] else '-'
+        summary   = '-'
 
-Example 4 – iterative chunked context analysis:
-```repl
-query = "What configuration options does the project support?"
-chunk_size = len(context) // 10
-answers = []
-for i in range(10):
-    chunk = context[i*chunk_size:(i+1)*chunk_size]
-    ans = llm_query("Answer only if confident: " + query + "\\nContext chunk:\\n" + chunk)
-    answers.append(ans)
-final_answer = llm_query("Aggregate: " + query + "\\n\\n" + "\\n".join(answers))
+        if f.get('parseable'):
+            r = fs_parse(full_path, max_chars=6000)
+            if not r['error'] and r['text']:
+                summary = llm_query('One sentence summary (max 20 words): ' + r['text'][:4000])
+
+        rows.append((f['name'], str(size_kb) + ' KB', mtime, fmt, summary))
+
+    total_kb = round(sum(f['size'] or 0 for f in files) / 1024, 1)
+    header  = '| File | Size | Modified | Format | Summary |'
+    divider = '|------|------|----------|--------|---------|'
+    table_rows = ['| ' + ' | '.join(r) + ' |' for r in rows]
+    report = '\\n'.join([header, divider] + table_rows + ['', '**Total:** ' + str(len(files)) + ' files, ' + str(total_kb) + ' KB'])
+    print(report)
 ```
-In the next step, return FINAL_VAR(final_answer).
+FINAL_VAR('report')
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TERMINATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-When you have your final answer, use ONE of these (outside any code block):
+When you have your final answer, emit ONE of these (outside any code block):
 
   FINAL(your answer text here)
   FINAL_VAR(variable_name)
 
-Do NOT use these until you have completed the task. Think step by step,
-plan, and execute the plan immediately in your response."""
-
+Think step by step, execute your plan immediately, and emit FINAL as soon
+as you have the answer. Do NOT loop asking for clarification – act."""
+)
 
 # ---------------------------------------------------------------------------
-# System prompt – Qwen3-Coder (warns about excessive sub-calls)
+# Qwen-specific prefix
 # ---------------------------------------------------------------------------
 
-QWEN3_SYSTEM_PROMPT = (
-    "IMPORTANT: Be very careful about using 'llm_query' as it incurs high "
-    "runtime costs. Always batch as much information as reasonably possible "
-    "into each call (aim for ~200K characters per call). Minimize the number "
-    "of 'llm_query' calls by batching related information together.\n\n"
-    + GPT5_SYSTEM_PROMPT
+_QWEN_PREFIX = (
+    "IMPORTANT: Be very careful about using 'llm_query' as it incurs runtime "
+    "costs. Batch as much information as possible into each call (~200K chars). "
+    "Minimise llm_query calls.\n\n"
 )
 
 
@@ -153,11 +142,10 @@ QWEN3_SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 def build_system_prompt(model: str) -> List[Dict[str, str]]:
-    """Return the system-prompt message list for the given model."""
     if "qwen" in model.lower():
-        prompt = QWEN3_SYSTEM_PROMPT
+        prompt = _QWEN_PREFIX + _BASE_SYSTEM
     else:
-        prompt = GPT5_SYSTEM_PROMPT
+        prompt = _BASE_SYSTEM
     return [{"role": "system", "content": prompt}]
 
 
@@ -167,12 +155,16 @@ def add_context_metadata(
     context_lengths: List[int],
     context_total_length: int,
 ) -> List[Dict[str, str]]:
-    """Fill in the {context_type/lengths/total_length} placeholders."""
-    messages[0]["content"] = messages[0]["content"].format(
-        context_type=context_type,
-        context_lengths=context_lengths,
-        context_total_length=context_total_length,
-    )
+    """
+    Fill in the context placeholders using plain str.replace() – never str.format() –
+    so that any literal braces in the prompt (dict examples, f-string examples, etc.)
+    are left untouched and never raise KeyError.
+    """
+    content = messages[0]["content"]
+    content = content.replace(_PH_TYPE,   str(context_type))
+    content = content.replace(_PH_TOTAL,  str(context_total_length))
+    content = content.replace(_PH_CHUNKS, str(context_lengths))
+    messages[0]["content"] = content
     return messages
 
 
@@ -181,31 +173,29 @@ def next_action_prompt(
     iteration: int = 0,
     final_answer: bool = False,
 ) -> Dict[str, str]:
-    """Generate the per-iteration user prompt."""
     if final_answer:
         return {
             "role": "user",
-            "content": "Based on all the information you have gathered, provide a final answer to the user's query.",
+            "content": "Based on all the information gathered, provide your final answer.",
         }
 
     if iteration == 0:
         safeguard = (
-            "You have not interacted with the REPL environment or seen your context yet. "
-            "Your next action should be to explore it – don't just provide a final answer yet.\n\n"
+            "You have NOT yet explored the filesystem or executed any REPL code. "
+            "Do NOT emit FINAL yet – first run the exploration code shown in the strategy section above.\n\n"
         )
         content = (
             safeguard
-            + f'Think step-by-step on how to use the REPL environment (and filesystem tools if needed) '
-            f'to answer the original query: "{query}".\n\n'
-            f'Use ```repl``` blocks to run Python, ```tool_call``` blocks for direct filesystem '
-            f'operations, and sub-LLMs via llm_query(). Your next action:'
+            + f'Think step-by-step and IMMEDIATELY write ```repl``` code to answer: "{query}"\n\n'
+            'Use fs_parse() for PDF/DOCX/XLSX files. Adapt the Downloads-analysis '
+            'template from the system prompt. Execute your code NOW – do not describe what you will do.'
         )
     else:
         content = (
-            f'The history above shows your previous interactions. Continue working toward an answer '
-            f'for: "{query}".\n\n'
-            f'Use ```repl``` blocks, ```tool_call``` blocks, or llm_query() as needed. '
-            f'When you have the answer, emit FINAL(...) or FINAL_VAR(...). Your next action:'
+            f'Continue toward the answer for: "{query}"\n\n'
+            'If you have a report or result variable, emit FINAL_VAR(report) or FINAL(text) NOW.\n'
+            'If there were errors, fix them with more ```repl``` code. '
+            'Do not repeat code that already worked.'
         )
 
     return {"role": "user", "content": content}

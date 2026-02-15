@@ -1,9 +1,14 @@
 """
 Recursive Language Model with REPL environment.
-Implements the core RLM algorithm from the paper, extended with
-sandboxed filesystem access via both:
-  - REPL functions (fs_list, fs_read, fs_write, fs_exists, fs_info)
-  - LLM tool-calling (OpenAI-compatible function-calling protocol)
+
+Patches vs original:
+  1. _find_code_blocks accepts ```python / ```py / ```Python in addition to
+     ```repl – small local models frequently use the wrong fence tag.
+  2. REPL output (stdout + stderr) is always fed back to the model as a
+     "user" message so it can react to errors instead of looping blindly.
+  3. RLM_REPL.__init__ accepts an `extra_locals` dict that run.py uses to
+     pre-inject the Downloads path as a clean forward-slash string variable,
+     avoiding backslash-escape bugs entirely.
 """
 
 from typing import Dict, List, Optional, Any, Union
@@ -17,22 +22,6 @@ from rlm.utils.tracing import tracer
 
 
 class RLM_REPL(RLM):
-    """
-    RLM implementation using REPL environment with sandboxed filesystem access.
-
-    Two complementary ways for the LLM to interact with the filesystem:
-
-    1. REPL functions  – written inside ```repl ... ``` blocks, executed
-       directly in the REPL sandbox:
-           fs_list('/workspace/src')
-           content = fs_read('/workspace/README.md')
-           fs_write('/workspace/output/result.txt', content)
-
-    2. Tool calls – standard OpenAI-style function-calling. The LLM emits
-       a JSON tool-call object; rlm_repl intercepts it, dispatches to
-       FSTools, and feeds the result back as a tool message. This is useful
-       when the LLM is better at structured tool calls than inline Python.
-    """
 
     def __init__(
         self,
@@ -43,32 +32,20 @@ class RLM_REPL(RLM):
         max_output_length: int = 500_000,
         depth: int = 0,
         allowed_roots: Optional[List[str]] = None,
+        extra_locals: Optional[Dict[str, Any]] = None,   # ← NEW
     ):
-        """
-        Initialize RLM with REPL + filesystem tools.
-
-        Args:
-            api_key:        API key for LLM provider.
-            model:          Root LLM model name.
-            recursive_model: Sub-LLM model name for recursive calls.
-            max_iterations: Maximum root LLM iterations before timeout.
-            max_output_length: Max REPL output length before truncation.
-            depth:          Current recursion depth (0 = root).
-            allowed_roots:  Whitelist of directories the LLM may access.
-                            Defaults to ['/workspace', '/tmp/rlm', '~/workspace'].
-        """
         self.api_key = api_key
         self.model = model
         self.recursive_model = recursive_model
         self.max_iterations = max_iterations
         self.max_output_length = max_output_length
         self.depth = depth
-        self.allowed_roots = allowed_roots  # forwarded to REPLEnv → FSTools
+        self.allowed_roots = allowed_roots
+        self.extra_locals = extra_locals or {}            # ← NEW
 
         from rlm.utils.llm import get_llm_client
         self.llm = get_llm_client(api_key, model)
 
-        # Cost / usage tracking
         self._root_llm_cost = 0.0
         self._sub_llm_cost  = 0.0
         self._root_llm_tokens = 0
@@ -76,12 +53,10 @@ class RLM_REPL(RLM):
         self._root_llm_calls  = 0
         self._sub_llm_calls   = 0
 
-        # State
         self.repl_env: Optional[REPLEnv] = None
         self.messages: List[Dict[str, str]] = []
         self.query: Optional[str] = None
 
-        # Shared FSTools instance (also used by the tool-calling layer)
         self._fs = FSTools(allowed_roots=allowed_roots)
 
     # ------------------------------------------------------------------
@@ -93,7 +68,6 @@ class RLM_REPL(RLM):
         context: Union[List[str], str, List[Dict[str, str]]],
         query: str,
     ):
-        """Set up the REPL environment with context and filesystem tools."""
         print("_setup_context called")
         self.query = query
         self.messages = []
@@ -116,7 +90,14 @@ class RLM_REPL(RLM):
             context_str=context_str,
             allowed_roots=self.allowed_roots,
         )
-        print("REPL environment initialized (fs tools available)")
+
+        # ── Inject extra locals (e.g. pre-normalised paths) ──────────────
+        if self.extra_locals:
+            self.repl_env.locals.update(self.extra_locals)
+            print(f"REPL environment initialized (fs tools available, "
+                  f"extra locals: {list(self.extra_locals.keys())})")
+        else:
+            print("REPL environment initialized (fs tools available)")
 
         from rlm.utils.prompts import add_context_metadata
         self.messages = add_context_metadata(
@@ -170,29 +151,12 @@ class RLM_REPL(RLM):
     # ------------------------------------------------------------------
 
     def _extract_tool_calls(self, response: str) -> Optional[List[Dict[str, Any]]]:
-        """
-        Extract tool calls from a model response.
-
-        Supports two formats:
-          1. Native OpenAI-style tool_calls in the response dict (when the
-             LLM client surfaces them — future work).
-          2. JSON embedded in the response text inside a
-             ```tool_call ... ``` fenced block, e.g.:
-
-             ```tool_call
-             {"name": "fs_read", "arguments": {"path": "/workspace/README.md"}}
-             ```
-
-        Returns a list of {"name": str, "arguments": dict} dicts, or None.
-        """
-        # Look for ```tool_call ... ``` blocks
         pattern = r'```tool_call\s*\n(.*?)\n```'
         calls = []
         for match in re.finditer(pattern, response, re.DOTALL):
             raw = match.group(1).strip()
             try:
                 obj = json.loads(raw)
-                # Accept both single call and list-of-calls
                 if isinstance(obj, list):
                     calls.extend(obj)
                 elif isinstance(obj, dict) and "name" in obj:
@@ -202,11 +166,6 @@ class RLM_REPL(RLM):
         return calls if calls else None
 
     def _dispatch_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-        """
-        Execute a list of tool calls against the sandboxed FSTools instance.
-
-        Returns a list of message dicts (role=tool) to append to self.messages.
-        """
         tool_messages = []
         for call in tool_calls:
             name = call.get("name", "")
@@ -216,10 +175,8 @@ class RLM_REPL(RLM):
                     args = json.loads(args)
                 except json.JSONDecodeError:
                     args = {}
-
             print(f"[tool-call] {name}({args})")
             result_json = dispatch_tool_call(self._fs, name, args)
-
             tool_messages.append({
                 "role": "tool",
                 "name": name,
@@ -228,11 +185,12 @@ class RLM_REPL(RLM):
         return tool_messages
 
     # ------------------------------------------------------------------
-    # REPL code-block helpers
+    # REPL code-block helpers  (FIX 1: accept python/py/Python tags)
     # ------------------------------------------------------------------
 
     def _find_code_blocks(self, text: str) -> Optional[List[str]]:
-        pattern = r'```repl\s*\n(.*?)\n```'
+        # Accept ```repl, ```python, ```py, ```Python, or plain ``` blocks
+        pattern = r'```(?:repl|python|py|Python)?\s*\n(.*?)\n```'
         results = [m.group(1).strip() for m in re.finditer(pattern, text, re.DOTALL)]
         return results if results else None
 
@@ -249,9 +207,9 @@ class RLM_REPL(RLM):
         result = self.repl_env.code_execution(code)
         parts = []
         if result.stdout:
-            parts.append(f"\n{result.stdout}")
+            parts.append(result.stdout)
         if result.stderr:
-            parts.append(f"\nError: {result.stderr}")
+            parts.append(f"STDERR:\n{result.stderr}")
 
         important_vars = {}
         for key, value in result.locals.items():
@@ -266,9 +224,9 @@ class RLM_REPL(RLM):
                     important_vars[key] = f"<{type(value).__name__}>"
 
         if important_vars:
-            parts.append(f"\nREPL variables: {list(important_vars.keys())}")
+            parts.append(f"REPL variables: {list(important_vars.keys())}")
 
-        formatted = "\n".join(parts) if parts else "No output"
+        formatted = "\n".join(parts) if parts else "(no output)"
         if len(formatted) > self.max_output_length:
             formatted = formatted[:self.max_output_length] + f"... [truncated from {len(formatted)} chars]"
         return formatted
@@ -280,9 +238,16 @@ class RLM_REPL(RLM):
             for code in code_blocks:
                 execution_result = self._execute_code(code)
                 execution_results.append(execution_result)
+                # FIX 2: always echo output so the model can see errors
                 self.messages.append({
                     "role": "user",
-                    "content": f"Code executed:\n```python\n{code}\n```\n\nREPL output:\n{execution_result}",
+                    "content": (
+                        f"Code executed:\n```python\n{code}\n```\n\n"
+                        f"REPL output:\n{execution_result}\n\n"
+                        "If the output shows an error or the listing is empty, "
+                        "diagnose and fix it. If output looks good, build the report "
+                        "and emit FINAL_VAR('report') or FINAL(...)."
+                    ),
                 })
         return self.messages, execution_results
 
@@ -294,8 +259,8 @@ class RLM_REPL(RLM):
         if answer_type == 'FINAL':
             return content
         elif answer_type == 'FINAL_VAR':
-            variable_name = content.strip().strip('"').strip("'").strip('\n').strip('\r')
-            if variable_name in self.repl_env.locals:
+            variable_name = content.strip().strip('"').strip("'").strip()
+            if self.repl_env and variable_name in self.repl_env.locals:
                 return str(self.repl_env.locals[variable_name])
         return None
 
@@ -308,21 +273,6 @@ class RLM_REPL(RLM):
         context: Union[List[str], str, List[Dict[str, str]]],
         query: str,
     ) -> Optional[str]:
-        """
-        Generate a completion using RLM with REPL + filesystem tools.
-
-        The loop handles three kinds of model output per iteration:
-          1. ```repl ... ```  blocks  → executed in the REPL sandbox
-          2. ```tool_call ... ``` blocks → dispatched to FSTools directly
-          3. FINAL(...) / FINAL_VAR(...)  → terminates and returns answer
-
-        Args:
-            context: Context to process (can be arbitrarily long).
-            query:   Query to answer.
-
-        Returns:
-            Final answer string, or None if max_iterations reached.
-        """
         print("Starting RLM completion...")
         self._setup_context(context, query)
 
@@ -339,25 +289,23 @@ class RLM_REPL(RLM):
             self._root_llm_tokens += cost_info['tokens']
             self._root_llm_calls  += 1
 
-            # ---- Handle tool calls (```tool_call``` blocks) --------------
+            # ---- Tool calls ---------------------------------------------
             tool_calls = self._extract_tool_calls(response)
             if tool_calls:
                 print(f"[iter {iteration}] dispatching {len(tool_calls)} tool call(s)")
                 tool_messages = self._dispatch_tool_calls(tool_calls)
-                # Add the assistant turn then all tool results
                 self.messages.append({"role": "assistant", "content": response})
                 self.messages.extend(tool_messages)
 
-            # ---- Handle REPL code blocks ---------------------------------
+            # ---- REPL code blocks ---------------------------------------
             code_blocks = self._find_code_blocks(response)
             execution_results = []
             if code_blocks:
                 self.messages, execution_results = self._process_code_execution_with_results(response)
             elif not tool_calls:
-                # Plain text response, no code, no tool call
                 self.messages.append({"role": "assistant", "content": "You responded with:\n" + response})
 
-            # ---- Tracing -------------------------------------------------
+            # ---- Tracing ------------------------------------------------
             repl_state = {}
             if self.repl_env:
                 repl_state = {
@@ -375,52 +323,18 @@ class RLM_REPL(RLM):
                 cost_info=cost_info,
             )
 
-            # ---- Check for final answer ----------------------------------
+            # ---- Check for final answer ---------------------------------
             final_answer = self._check_final_answer(response)
             if final_answer:
-                tracer.log_turn(
-                    iteration=iteration,
-                    messages=self.messages,
-                    response=response,
-                    code_blocks=code_blocks or [],
-                    execution_results=execution_results,
-                    final_answer=final_answer,
-                    repl_state=repl_state,
-                    cost_info=cost_info,
-                )
                 return final_answer
 
             # Check REPL locals for FINAL(...)
             if self.repl_env and hasattr(self.repl_env, 'locals'):
                 for var_name, var_value in self.repl_env.locals.items():
                     if isinstance(var_value, str) and var_value.startswith('FINAL(') and var_value.endswith(')'):
-                        actual_answer = var_value[6:-1]
-                        tracer.log_turn(
-                            iteration=iteration,
-                            messages=self.messages,
-                            response=response,
-                            code_blocks=code_blocks or [],
-                            execution_results=execution_results,
-                            final_answer=actual_answer,
-                            repl_state=repl_state,
-                            cost_info=cost_info,
-                        )
-                        return actual_answer
+                        return var_value[6:-1]
 
         print(f"Warning: RLM reached max iterations ({self.max_iterations}) without a final answer.")
-        tracer.log_turn(
-            iteration=self.max_iterations,
-            messages=self.messages,
-            response="",
-            code_blocks=[],
-            execution_results=[],
-            final_answer=None,
-            repl_state={
-                'context_loaded': 'context' in (self.repl_env.locals if self.repl_env else {}),
-                'local_vars': list(self.repl_env.locals.keys()) if self.repl_env else [],
-            },
-            cost_info={'cost': 0, 'tokens': 0},
-        )
         return None
 
     # ------------------------------------------------------------------

@@ -1,35 +1,30 @@
 """
 run.py – RLM entry point.
 
-Two use-cases selectable via CLI:
+Selectable via CLI:
+    python run.py pipeline   – sub-agent pipeline on a huge prompt
+    python run.py downloads  – list + parse ~/Downloads with fs_parse()
+    python run.py            – runs both sequentially (demo mode)
 
-    python run.py pipeline   – store a huge prompt in a variable, let sub-agents
-                               process it in parallel, aggregate to a final answer.
-
-    python run.py downloads  – list and extract content from the ~/Downloads folder
-                               using the REPL + filesystem tools.
-
-    python run.py            – runs both sequentially (demo mode).
-
-Environment:
-    Copy .env.example → .env and fill in your values before running.
+Environment: copy .env.example → .env and fill in your values.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import subprocess
 import json
 import textwrap
 from pathlib import Path
 
-# ── Load .env before anything else ──────────────────────────────────────────
+
+# ── Load .env ────────────────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
     load_dotenv()
     print("[run] .env loaded via python-dotenv")
 except ImportError:
-    # Manual .env loader (no dependency required)
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         for line in env_path.read_text().splitlines():
@@ -39,10 +34,41 @@ except ImportError:
                 os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
         print("[run] .env loaded manually")
     else:
-        print("[run] Warning: no .env file found – using existing environment variables.")
+        print("[run] Warning: no .env file found.")
 
 
-# ── Banner ───────────────────────────────────────────────────────────────────
+# ── Optional dependency installer ─────────────────────────────────────────────
+
+def _ensure_parsers():
+    """
+    Install file-parsing libraries if not already present.
+    Tries uv (project tool) first, then falls back to pip.
+    """
+    pkgs = {
+        "pdfplumber": "pdfplumber",
+        "docx":       "python-docx",
+        "openpyxl":   "openpyxl",
+    }
+    for import_name, pip_name in pkgs.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            print(f"[run] Installing {pip_name} for file parsing...")
+            # Try uv first (used by this project), then pip as fallback
+            installed = False
+            for cmd in (
+                ["uv", "add", pip_name],
+                [sys.executable, "-m", "pip", "install", pip_name, "-q"],
+            ):
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"[run] {pip_name} installed OK")
+                    installed = True
+                    break
+            if not installed:
+                print(f"[run] WARNING: could not install {pip_name} – "
+                      f"run manually: uv add {pip_name}")
+
 
 def banner(title: str):
     width = 70
@@ -56,8 +82,6 @@ def banner(title: str):
 # USE CASE 1 – Huge prompt → sub-agent pipeline
 # ============================================================================
 
-# This is your "huge prompt" stored as a Python variable.
-# In production you'd load this from a file, database, API, etc.
 HUGE_PROMPT = """\
 QUARTERLY EARNINGS REPORT – FY 2025 Q3
 =======================================
@@ -143,20 +167,17 @@ Appendix – Top 5 Customers by Revenue
   5. AutoManufacture GmbH   $98 M   (Hardware + Services)
 
 [END OF REPORT]
-""" * 3   # Tripled to simulate a realistically large prompt (~9 KB)
+""" * 3  # Tripled to simulate a large prompt (~9 KB)
 
 
 def run_pipeline():
-    """Use-case 1: process HUGE_PROMPT with the sub-agent pipeline."""
     banner("USE CASE 1 – Sub-Agent Pipeline on Huge Prompt")
 
     from rlm.agents import PromptPipeline
 
-    print(f"Prompt size: {len(HUGE_PROMPT):,} chars")
-    print()
+    print(f"Prompt size: {len(HUGE_PROMPT):,} chars\n")
 
-    pipeline = PromptPipeline()   # reads all config from .env
-
+    pipeline = PromptPipeline()
     task = (
         "Extract every explicit ACTION ITEM mentioned in the report. "
         "Return them as a numbered markdown list with the responsible segment "
@@ -164,11 +185,7 @@ def run_pipeline():
     )
     print(f"Task: {task}\n")
 
-    result = pipeline.run(
-        prompt=HUGE_PROMPT,
-        task=task,
-        parallel=True,
-    )
+    result = pipeline.run(prompt=HUGE_PROMPT, task=task, parallel=True)
 
     print()
     print("─" * 70)
@@ -182,16 +199,19 @@ def run_pipeline():
 
 
 # ============================================================================
-# USE CASE 2 – Extract content from ~/Downloads
+# USE CASE 2 – Extract and summarise content from ~/Downloads
 # ============================================================================
 
+
+
 def run_downloads():
-    """Use-case 2: list and extract content from ~/Downloads using RLM + REPL."""
-    banner("USE CASE 2 – Extract Content from ~/Downloads")
+    banner("USE CASE 2 – Analyse & Summarise ~/Downloads")
+
+    _ensure_parsers()
 
     downloads_path = str(Path.home() / "Downloads")
-
-    # Allowed paths: Downloads + a scratch dir for any output files
+    # Forward slashes prevent \b \n \t escape bugs in model-generated string literals
+    downloads_fwd  = downloads_path.replace("\\", "/")
     allowed = [downloads_path, "/tmp/rlm_scratch"]
 
     from rlm.rlm_repl import RLM_REPL
@@ -199,24 +219,51 @@ def run_downloads():
     rlm = RLM_REPL(
         allowed_roots=allowed,
         max_iterations=int(os.getenv("RLM_MAX_ITERATIONS", "15")),
+        # Pre-inject path as a REPL variable so the model never types a
+        # backslash path literal (which it consistently mangles).
+        extra_locals={"DOWNLOADS": downloads_fwd},
     )
 
-    query = textwrap.dedent(f"""\
-        1. List everything inside {downloads_path}.
-        2. For each file found:
-           a. Show its name, size, and last-modified date.
-           b. If it is a readable text/markdown/CSV/JSON file, read its content
-              and produce a one-sentence summary using llm_query().
-        3. Return a structured Markdown report with:
-           - A table: File | Size | Modified | Summary
-           - Total file count and combined size.
-        Return the full report via FINAL(...).""")
+    # The query IS the code – wrapped in a repl fence so it executes on iter 0.
+    # Using single-quoted strings throughout to avoid escape headaches.
+    query = (
+        "The variable DOWNLOADS is already defined in the REPL. "
+        "Copy and run this code block exactly as-is:\n\n"
+        "```repl\n"
+        "import datetime\n"
+        "listing = fs_list(DOWNLOADS)\n"
+        "if listing['error']:\n"
+        "    report = 'Error listing directory: ' + listing['error']\n"
+        "else:\n"
+        "    files = [e for e in listing['entries'] if e['type'] == 'file']\n"
+        "    rows = []\n"
+        "    for f in files:\n"
+        "        fp      = DOWNLOADS + '/' + f['name']\n"
+        "        size_kb = str(round(f['size'] / 1024, 1)) + ' KB' if f['size'] else '0 KB'\n"
+        "        mtime   = datetime.datetime.fromtimestamp(f['modified']).strftime('%Y-%m-%d') if f['modified'] else 'n/a'\n"
+        "        fmt     = f['name'].rsplit('.', 1)[-1].lower() if '.' in f['name'] else '-'\n"
+        "        summary = '-'\n"
+        "        if f.get('parseable'):\n"
+        "            r = fs_parse(fp, max_chars=6000)\n"
+        "            if not r['error'] and r['text']:\n"
+        "                summary = llm_query('One sentence summary (max 20 words): ' + r['text'][:4000])\n"
+        "        rows.append((f['name'], size_kb, mtime, fmt, summary))\n"
+        "    total_kb = round(sum(f['size'] or 0 for f in files) / 1024, 1)\n"
+        "    lines  = ['| File | Size | Modified | Format | Summary |']\n"
+        "    lines += ['|------|------|----------|--------|---------|']\n"
+        "    lines += ['| ' + ' | '.join(r) + ' |' for r in rows]\n"
+        "    lines += ['', '**Total:** ' + str(len(files)) + ' files, ' + str(total_kb) + ' KB']\n"
+        "    report = '\\n'.join(lines)\n"
+        "    print(report)\n"
+        "```\n"
+        "FINAL_VAR('report')"
+    )
 
     print(f"Downloads path : {downloads_path}")
-    print(f"Query          :\n{query}\n")
+    print(f"REPL variable  : DOWNLOADS = '{downloads_fwd}'")
+    print(f"Allowed roots  : {allowed}\n")
 
-    # The 'context' here is just a hint – the real data comes from fs_* calls
-    context = f"Target directory: {downloads_path}"
+    context = f"Target directory: {downloads_fwd}"
     result  = rlm.completion(context=context, query=query)
 
     print()
@@ -227,11 +274,17 @@ def run_downloads():
         print(result)
     else:
         print("(RLM reached max iterations without a final answer.)")
+        print()
+        print("Tip: increase RLM_MAX_ITERATIONS in your .env")
     print()
 
     costs = rlm.cost_summary()
-    print(f"Cost: ${costs['total_cost']:.6f}  |  Root calls: {costs['root_llm_calls']}  "
-          f"|  Sub-LLM calls: {costs['sub_llm_calls']}")
+    print(
+        f"Cost: ${costs['total_cost']:.6f}  |  "
+        f"Root calls: {costs['root_llm_calls']}  |  "
+        f"Sub-LLM calls: {costs['sub_llm_calls']}"
+    )
+
 
 
 # ============================================================================
@@ -240,7 +293,6 @@ def run_downloads():
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-
     if mode in ("pipeline", "1"):
         run_pipeline()
     elif mode in ("downloads", "2"):
