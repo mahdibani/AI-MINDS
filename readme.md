@@ -45,3 +45,35 @@ Modern users constantly capture fragments of information across many sources and
 - [x] Visual content (diagrams, charts)
 
 ## Architecture
+
+### Backend (Microservices)
+
+- API gateway: `backend/api/main.py`
+- Budget service: `backend/api/apps/budget_app.py`
+- Files service: `backend/api/apps/files_app.py`
+- Memory service: `backend/api/apps/memory_app.py`
+- Pipeline service: `backend/api/apps/pipeline_app.py`
+- Knowledge graph service: `backend/api/apps/knowledge_graph_app.py`
+- REPL service: `backend/api/apps/repl_app.py`
+- Testing service: `backend/api/apps/testing_app.py`
+
+Run gateway:
+
+```bash
+cd backend
+python api_server.py
+```
+
+### Frontend
+
+- Modular Gradio UI: `frontend/app.py`
+- Legacy entrypoint kept: `frontend/gradio_app.py`
+- API client: `frontend/api_client.py`
+- Modular tabs: budget, files, memory, pipeline, knowledge graph, repl, testing
+
+Run frontend:
+
+```bash
+cd frontend
+python app.py
+```

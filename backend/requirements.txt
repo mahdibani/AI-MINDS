@@ -4,3 +4,6 @@ langchain-daytona
 daytona-sdk
 python-dotenv
 langchain-openai
+fastapi
+uvicorn
+requests

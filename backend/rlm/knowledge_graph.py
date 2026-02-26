@@ -353,7 +353,7 @@ class KnowledgeGraph:
             await cognee.cognify()
             self._built = True
             self._graph = "cognee"
-            print("[kg] cognee graph built ✓")
+            print("[kg] cognee graph built [ok]")
             return True
         except Exception as e:
             print(f"[kg] cognee build error: {e}")
@@ -368,7 +368,7 @@ class KnowledgeGraph:
         self._built = True
         n = self._graph.number_of_nodes()
         e = self._graph.number_of_edges()
-        print(f"[kg] networkx graph built ✓  nodes={n}  edges={e}")
+        print(f"[kg] networkx graph built [ok]  nodes={n}  edges={e}")
 
     # ------------------------------------------------------------------
     # Search
@@ -394,7 +394,7 @@ class KnowledgeGraph:
             for node, data in self._graph.nodes(data=True):
                 if q in node.lower():
                     neighbours = list(self._graph.neighbors(node))
-                    hits.append(f"[{data.get('type','?')}] {node}  →  {', '.join(str(n) for n in neighbours[:8])}")
+                    hits.append(f"[{data.get('type','?')}] {node}  ->  {', '.join(str(n) for n in neighbours[:8])}")
                     if len(hits) >= limit:
                         break
             return hits or [f"No nodes matching '{query}' found in graph."]
@@ -424,7 +424,7 @@ class KnowledgeGraph:
         if self._graph == "cognee" and _COGNEE_AVAILABLE:
             try:
                 await _cognee_visualize(output_path)
-                print(f"[kg] cognee graph exported → {output_path}")
+                print(f"[kg] cognee graph exported -> {output_path}")
                 return output_path
             except Exception as e:
                 print(f"[kg] cognee visualize failed ({e}) – falling back to networkx export")
@@ -433,7 +433,7 @@ class KnowledgeGraph:
         # networkx / pyvis export
         if _NX_AVAILABLE and isinstance(self._graph, nx.Graph):
             _export_networkx_html(self._graph, output_path)
-            print(f"[kg] Graph exported → {output_path}")
+            print(f"[kg] Graph exported -> {output_path}")
             return output_path
 
         Path(output_path).write_text("<p>No graph available.</p>")
