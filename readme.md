@@ -1,60 +1,32 @@
 # AI-MINDS
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](#)
-[![FastAPI](https://img.shields.io/badge/FastAPI-Microservices-009688?logo=fastapi&logoColor=white)](#)
-[![Gradio](https://img.shields.io/badge/UI-Gradio-F97316)](#)
-[![RLM](https://img.shields.io/badge/Agentic-REPL%20Tracing-111827)](#)
-[![Local First](https://img.shields.io/badge/Privacy-Local--First-22C55E)](#)
+AI-MINDS is a local-first, multi-agent intelligence platform for analyzing personal/work files, building persistent memory, and answering complex queries through a REPL-driven reasoning loop.
 
-AI-MINDS is a local-first, multi-agent intelligence platform for analyzing files, building persistent memory, and answering complex queries through a REPL-driven reasoning loop.
+It combines:
+- A FastAPI microservices backend
+- A Gradio frontend with task-focused tabs
+- A recursive LLM + tool-use engine (RLM)
+- Memory and knowledge-graph components for long-term context
 
-## Table Of Contents
+## Why AI-MINDS
 
-1. [Overview](#overview)
-2. [Core Architecture](#core-architecture)
-3. [Project Structure](#project-structure)
-4. [Features](#features)
-5. [Tech Stack](#tech-stack)
-6. [Quick Start](#quick-start)
-7. [API Domains](#api-domains)
-8. [RLM Tracing and Logs](#rlm-tracing-and-logs)
-9. [Screenshots and Demos](#screenshots-and-demos)
-10. [Testing](#testing)
-11. [Roadmap Ideas](#roadmap-ideas)
-12. [License](#license)
-
-## Overview
-
-Most assistants answer one prompt and forget the rest. AI-MINDS is designed for iterative workflows:
-- Ingest and parse real files (CSV, JSON, PDF, DOCX, XLSX, TXT)
+Most assistants answer a single prompt and forget everything else. AI-MINDS is designed for iterative work:
+- Ingest and parse real files (CSV, JSON, PDF, DOCX, XLSX, TXT, etc.)
 - Run agentic analysis with traceable steps
 - Persist useful context in memory
 - Build and visualize a knowledge graph
-- Serve everything through API + UI
+- Expose everything through API + UI
 
 ## Core Architecture
 
-High-level flow (aligned with your diagrams):
+Your high-level flow (matching your diagrams):
 
 1. User query enters root orchestration.
-2. Root agent delegates to specialized sub-agents in sandboxed execution.
+2. Root agent delegates work to specialized sub-agents inside sandboxed execution.
 3. Retrieval + tool agents parse files and run analysis.
-4. Memory + knowledge graph enrich future decisions.
+4. Memory and knowledge graph enrich the next decisions.
 5. Testing agent validates behavior (LangWatch scenarios).
-6. Final answer is returned with execution trace.
-
-<details>
-<summary><strong>Architecture Deep Dive</strong></summary>
-
-- Root orchestration receives query and loads root prompt/context.
-- Sub-agent 1 handles advisory reasoning tasks.
-- Sub-agent 2 handles retrieval over parsed sources and memory.
-- Sub-agent 3 handles tool execution and filesystem operations.
-- RLM REPL executes code blocks and tool calls iteratively.
-- Memory layer stores episodic and working memory state.
-- Knowledge graph layer stores extracted semantic relations.
-
-</details>
+6. Final answer is returned with logs and execution trace.
 
 ## Project Structure
 
@@ -91,10 +63,11 @@ AI-MINDS/
 - Python
 - FastAPI + Uvicorn
 - Gradio
+- Cognee
 - Ollama-compatible LLM endpoints
 - Daytona sandbox integration
 - Mem0-style memory store (local)
-- Knowledge graph tooling (including HTML visualization)
+- Knowledge graph tooling 
 
 ## Quick Start
 
@@ -104,7 +77,7 @@ AI-MINDS/
 git clone <your-repo-url>
 cd AI-MINDS
 python -m venv .venv
-.\.venv\Scripts\activate
+.venv\Scripts\activate
 pip install -r backend/requirements.txt
 ```
 
@@ -187,18 +160,17 @@ Example trace file:
 
 ## Screenshots and Demos
 
-Place your images in `docs/assets/` using the names below.
+Create a folder like `docs/assets/` and place your images there.
 
 ### Architecture
 
 ![Architecture Diagram](docs/assets/architecture-main.png)
-![Architecture Diagram (Detailed)](docs/assets/architecture-detailed.png)
 
 ### RLM Processing Logs
-
-![RLM Log - Discovery and Detection](docs/assets/rlm-log-step-1.png)
-![RLM Log - Field Filling Progress](docs/assets/rlm-log-step-2.png)
-![RLM Log - Completion Summary](docs/assets/rlm-log-step-3.png)
+![RLM Log snapshot](docs/assets/architecture-detailed.png)
+![Discovery and Detection](docs/assets/rlm-log-step-1.png)
+![Field Filling Progress](docs/assets/rlm-log-step-2.png)
+![Completion Summary](docs/assets/rlm-log-step-3.png)
 
 ### App Snapshots
 
@@ -206,21 +178,6 @@ Place your images in `docs/assets/` using the names below.
 ![Extracted JSON Output](docs/assets/app-extracted-data.png)
 ![Budget CSV Example](docs/assets/app-budget-csv.png)
 ![Budget Q&A Result](docs/assets/app-budget-qa.png)
-
-<details>
-<summary><strong>Asset Upload Checklist</strong></summary>
-
-- `docs/assets/architecture-main.png`
-- `docs/assets/architecture-detailed.png`
-- `docs/assets/rlm-log-step-1.png`
-- `docs/assets/rlm-log-step-2.png`
-- `docs/assets/rlm-log-step-3.png`
-- `docs/assets/app-filled-form.png`
-- `docs/assets/app-extracted-data.png`
-- `docs/assets/app-budget-csv.png`
-- `docs/assets/app-budget-qa.png`
-
-</details>
 
 ## Testing
 
@@ -241,6 +198,5 @@ Or run from the frontend `Testing` tab.
 - Multi-user memory isolation and export/import
 - Streaming agent steps and live cost telemetry
 
-## License
 
-Add your license here (MIT, Apache-2.0, etc.).
+
