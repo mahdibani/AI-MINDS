@@ -1,5 +1,15 @@
 # AI-MINDS
 
+<p>
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/FastAPI-Uvicorn-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI + Uvicorn" />
+  <img src="https://img.shields.io/badge/Gradio-UI-F97316?style=for-the-badge&logo=gradio&logoColor=white" alt="Gradio" />
+  <img src="https://img.shields.io/badge/Ollama-Compatible%20Endpoints-111827?style=for-the-badge&logo=ollama&logoColor=white" alt="Ollama-compatible LLM endpoints" />
+  <img src="docs/assets/logos/cognee.png" alt="Cognee" height="28" />
+  <img src="docs/assets/logos/daytona.png" alt="Daytona" height="28" />
+  <img src="docs/assets/logos/mem0.png" alt="Mem0" height="28" />
+</p>
+
 AI-MINDS is a local-first, multi-agent intelligence platform for analyzing personal/work files, building persistent memory, and answering complex queries through a REPL-driven reasoning loop.
 
 It combines:
@@ -197,6 +207,5 @@ Or run from the frontend `Testing` tab.
 - Better source-citation grounding in final answers
 - Multi-user memory isolation and export/import
 - Streaming agent steps and live cost telemetry
-
 
 
