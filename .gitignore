@@ -1,0 +1,5 @@
+.env
+_pycache_
+backend\rlm\__pycache__
+backend\.pytest_cache
+backend\.pytest_cache

@@ -13,7 +13,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from budget_advisor import BudgetAdvisor
+from backend.budget_advisor import BudgetAdvisor
 from test_agents import (
     AgentAdapter,
     TestScenario,
