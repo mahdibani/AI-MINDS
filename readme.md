@@ -29,7 +29,7 @@ Most assistants answer a single prompt and forget everything else. AI-MINDS is d
 
 ## Core Architecture
 
-Your high-level flow (matching your diagrams):
+high-level flow:
 
 1. User query enters root orchestration.
 2. Root agent delegates work to specialized sub-agents inside sandboxed execution.
@@ -109,7 +109,7 @@ RLM_MAX_ITERATIONS=15
 RLM_LOG_DIR=logs
 ```
 
-Optional for Daytona:
+for Daytona:
 
 ```env
 DAYTONA_API_KEY=
@@ -167,10 +167,6 @@ Typical log locations:
 
 Example trace file:
 - `frontend/logs/rlm_trace_20260215_043705_096693.jsonl`
-
-## Screenshots and Demos
-
-Create a folder like `docs/assets/` and place your images there.
 
 ### Architecture
 
